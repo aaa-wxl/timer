@@ -50,7 +50,7 @@ public class XtimerWebController {
                 TimerDTO timerDTO = new TimerDTO();
                 timerDTO.setApp("loadtest");
                 timerDTO.setName("batch_timer_" + System.currentTimeMillis() + "_" + i);
-                timerDTO.setStatus(1); // Enable immediately
+                timerDTO.setStatus(2); // Enable immediately (status=2 is Enable)
                 timerDTO.setCron(cron);
 
                 NotifyHTTPParam notifyParam = new NotifyHTTPParam();

@@ -35,14 +35,16 @@ public class MigratorWorker {
     @Autowired
     ReentrantDistributeLock reentrantDistributeLock;
 
+    // Use a fixed token per instance so the lock can recognize itself
+    private static final String MIGRATOR_LOCK_TOKEN = "migrator-instance-" + TimerUtils.GetTokenStr();
+
     @Scheduled(fixedRate = 10*1000) // 60*60*1000 一小时执行一次
     public void work() {
         log.info("开始迁移时间：" + LocalDateTime.now());
         Date startHour = getStartHour(new Date());
-        String lockToken = TimerUtils.GetTokenStr();
         boolean ok = reentrantDistributeLock.lock(
                 TimerUtils.GetMigratorLockKey(startHour),
-                lockToken,
+                MIGRATOR_LOCK_TOKEN,
                 60L*migratorAppConf.getMigrateTryLockMinutes());
         if(!ok){
             log.warn("migrator get lock failed！"+TimerUtils.GetMigratorLockKey(startHour));
