@@ -52,4 +52,6 @@ public interface TaskMapper {
      */
     TaskModel getTasksByTimerIdUnix(@Param("timerId") Long timerId, @Param("runTimer") Long runTimer);
 
+    List<TaskModel> getCompletedTasksByRunTimer(@Param("app") String app, @Param("runTimer") Long runTimer);
+
 }

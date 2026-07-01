@@ -24,18 +24,16 @@ public class SchedulerTask {
     @Autowired
     TriggerWorker triggerWorker;
 
-    // Use a fixed token per instance so the lock can recognize itself
-    private static final String SCHEDULER_LOCK_TOKEN = "scheduler-instance-" + TimerUtils.GetTokenStr();
-
     @Async("schedulerPool")
     public void asyncHandleSlice(Date date,int bucketId) {
         log.info("start executeAsync");
 
+        String lockToken = TimerUtils.GetTokenStr();
         // 只加锁不解锁，只有超时解锁；超时时间控制频率；
         // 锁住横纵向切分后的：单个桶（分钟+bucketIndex）
         boolean ok = reentrantDistributeLock.lock(
                 TimerUtils.GetTimeBucketLockKey(date,bucketId),
-                SCHEDULER_LOCK_TOKEN,
+                lockToken,
                 schedulerAppConf.getTryLockSeconds());
         if(!ok){
             log.info("asyncHandleSlice 获取分布式锁失败");
@@ -50,7 +48,7 @@ public class SchedulerTask {
         // 延长分布式锁的时间,避免重复执行分片
         reentrantDistributeLock.expireLock(
                 TimerUtils.GetTimeBucketLockKey(date,bucketId),
-                SCHEDULER_LOCK_TOKEN,
+                lockToken,
                 schedulerAppConf.getSuccessExpireSeconds());
 
         log.info("end executeAsync");

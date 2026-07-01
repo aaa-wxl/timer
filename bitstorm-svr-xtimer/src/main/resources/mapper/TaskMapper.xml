@@ -67,4 +67,10 @@
     <select id="getTasksByTimerIdUnix" resultType="cn.bitoffer.xtimer.model.TaskModel" resultMap="taskMap">
         select * from timer_task where timer_id = #{timerId} and run_timer = #{runTimer}
     </select>
+
+    <select id="getCompletedTasksByRunTimer" resultMap="taskMap">
+        select * from timer_task
+        where app = #{app} and run_timer = #{runTimer} and status in (1, 2)
+        order by cost_time asc
+    </select>
 </mapper>
