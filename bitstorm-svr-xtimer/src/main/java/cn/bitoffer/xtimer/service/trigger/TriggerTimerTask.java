@@ -51,6 +51,7 @@ public class TriggerTimerTask extends TimerTask {
     @Override
     public void run() {
         long gapMs = triggerAppConf.getZrangeGapSeconds() * 1000L;
+        // Quartz cron 最小粒度是秒；根据真实墙上时间计算本轮应该扫描的秒级窗口。
         List<long[]> scanRanges = collectDueScanRanges(nextScanMs, System.currentTimeMillis(), endTime.getTime(), gapMs);
         if (CollectionUtils.isEmpty(scanRanges)) {
             if (nextScanMs >= endTime.getTime()) {
@@ -59,7 +60,7 @@ public class TriggerTimerTask extends TimerTask {
             return;
         }
 
-        // Catch up due scores by wall clock; never scan beyond now.
+        // 只补扫已经到期但还没扫过的窗口，nextScanMs 始终指向下一个未扫描窗口起点。
         for (long[] scanRange : scanRanges) {
             try {
                 handleBatch(new Date(scanRange[0]), new Date(scanRange[1]));
@@ -74,6 +75,8 @@ public class TriggerTimerTask extends TimerTask {
         }
     }
 
+    // 返回半开区间 [start, end)。TaskCache 实际用 rangeByScore(start, end - 1)，所以 end 不包含在内。
+    // now=03.200 时最多扫描到 [03,04)，cron 任务只会落在整秒 03.000，不会提前命中 04.000。
     static List<long[]> collectDueScanRanges(long nextScanMs, long nowMs, long endMs, long gapMs) {
         if (gapMs <= 0) {
             throw new IllegalArgumentException("gapMs must be positive");
@@ -84,7 +87,7 @@ public class TriggerTimerTask extends TimerTask {
             return scanRanges;
         }
 
-        long dueEndMs = Math.min(nowMs + 1, endMs);
+        long dueEndMs = Math.min(((nowMs / 1000L) + 1) * 1000L, endMs);
         for (long scanStart = nextScanMs; scanStart < dueEndMs; scanStart += gapMs) {
             long scanEnd = Math.min(scanStart + gapMs, dueEndMs);
             scanRanges.add(new long[]{scanStart, scanEnd});
