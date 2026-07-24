@@ -24,10 +24,13 @@ public class TriggerPoolTask {
         if(task == null){
             return;
         }
-        log.info("start runExecutor");
+        long submitTime = System.currentTimeMillis();
+        long runTimer = task.getRunTimer();
+        long queueDelay = submitTime - runTimer;
 
         executorWorker.work(TimerUtils.UnionTimerIDUnix(task.getTimerId(),task.getRunTimer()));
 
-        log.info("end executeAsync");
+        log.info("BENCH_QUEUE timerId={} runTimer={} submitAt={} queueDelay={}ms",
+                task.getTimerId(), runTimer, submitTime, queueDelay);
     }
 }

@@ -32,6 +32,7 @@ public class ExecutorWorker {
     TimerMapper timerMapper;
 
     public void work(String timerIDUnixKey){
+        long start = System.currentTimeMillis();
 
         List<Long> longSet = TimerUtils.SplitTimerIDUnix(timerIDUnixKey);
         if(longSet.size() != 2){
@@ -42,7 +43,9 @@ public class ExecutorWorker {
         Long unix = longSet.get(1);
 
         //查询出任务，判断是否执行过了。避免重复执行
+        long t1 = System.currentTimeMillis();
         TaskModel task = taskMapper.getTasksByTimerIdUnix(timerId,unix);
+        long t2 = System.currentTimeMillis();
         if(task.getStatus() != TaskStatus.NotRun.getStatus()){
             log.warn("重复执行任务： timerId"+timerId+",runtimer:"+unix);
             return;
@@ -50,12 +53,15 @@ public class ExecutorWorker {
 
         // 执行回调
         executeAndPostProcess(task,timerId,unix);
+        long t3 = System.currentTimeMillis();
+        log.info("BENCH timerId={} dbQuery={}ms execute={}ms total={}ms", timerId, t2-t1, t3-t2, t3-start);
     }
 
     private void executeAndPostProcess(TaskModel taskModel,Long timerId, Long unix){
 
         // 1.查询 timerModel
         TimerModel timerModel = timerMapper.getTimerById(timerId);
+        long t1 = System.currentTimeMillis();
         if(timerModel == null){
             log.error("执行回调错误，找不到对应的Timer。 timerId"+timerId);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR,"执行回调错误，找不到对应的Timer。 timerId"+timerId);
@@ -72,12 +78,14 @@ public class ExecutorWorker {
         taskModel.setCostTime(gapTime);
 
         // 执行http回调，通知业务放
+        long t2 = System.currentTimeMillis();
         ResponseEntity<String> resp = null;
         try{
             resp = executeTimerCallBack(timerModel);
         }catch (Exception e){
             log.error("执行回调失败，抛出异常e:"+e);
         }
+        long t3 = System.currentTimeMillis();
 
         //后置处理，更新Timer执行结果
         if(resp == null){
@@ -92,6 +100,8 @@ public class ExecutorWorker {
         }
 
         taskMapper.update(taskModel);
+        long t4 = System.currentTimeMillis();
+        log.info("BENCH_DETAIL timerId={} getTimer={}ms http={}ms update={}ms", timerId, t1 > 0 ? System.currentTimeMillis() - t1 : 0, t3-t2, t4-t3);
     }
 
     private ResponseEntity<String> executeTimerCallBack(TimerModel timerModel){
@@ -102,6 +112,7 @@ public class ExecutorWorker {
         switch (httpParam.getMethod()){
             case "POST":
                 resp = restTemplate.postForEntity(httpParam.getUrl(), httpParam.getBody(),String.class);
+                break;
             default:
                 log.error("不支持的httpMethod");
                 break;

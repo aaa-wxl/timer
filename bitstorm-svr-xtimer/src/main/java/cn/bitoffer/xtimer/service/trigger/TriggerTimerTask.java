@@ -1,9 +1,7 @@
 package cn.bitoffer.xtimer.service.trigger;
 
-import cn.bitoffer.xtimer.exception.ErrorCode;
 import cn.bitoffer.xtimer.common.conf.TriggerAppConf;
 import cn.bitoffer.xtimer.enums.TaskStatus;
-import cn.bitoffer.xtimer.exception.BusinessException;
 import cn.bitoffer.xtimer.mapper.TaskMapper;
 import cn.bitoffer.xtimer.model.TaskModel;
 import cn.bitoffer.xtimer.redis.TaskCache;
@@ -27,8 +25,8 @@ public class TriggerTimerTask extends TimerTask {
 
     TaskMapper taskMapper;
 
-    private CountDownLatch latch ;
-    private Long count = 0L;
+    private CountDownLatch latch;
+    private long nextScanMs;
 
     private Date startTime;
 
@@ -36,8 +34,8 @@ public class TriggerTimerTask extends TimerTask {
 
     private String minuteBucketKey;
 
-    public TriggerTimerTask(TriggerAppConf triggerAppConf,TriggerPoolTask triggerPoolTask,
-                            TaskCache taskCache,TaskMapper taskMapper,CountDownLatch latch,
+    public TriggerTimerTask(TriggerAppConf triggerAppConf, TriggerPoolTask triggerPoolTask,
+                            TaskCache taskCache, TaskMapper taskMapper, CountDownLatch latch,
                             Date startTime, Date endTime, String minuteBucketKey) {
         this.triggerAppConf = triggerAppConf;
         this.triggerPoolTask = triggerPoolTask;
@@ -47,58 +45,85 @@ public class TriggerTimerTask extends TimerTask {
         this.startTime = startTime;
         this.endTime = endTime;
         this.minuteBucketKey = minuteBucketKey;
+        this.nextScanMs = startTime.getTime();
     }
 
     @Override
     public void run() {
-        Date tStart = new Date(startTime.getTime() + count*triggerAppConf.getZrangeGapSeconds()*1000L);
-        // 推出条件：tstart >= endTime时就该退出了，表示执行完成。 latch.countDown();就是告诉阻塞的主线程可以继续运行了。
-        if(tStart.compareTo(endTime) > 0){
-            latch.countDown();
+        long gapMs = triggerAppConf.getZrangeGapSeconds() * 1000L;
+        List<Long> scanStarts = collectDueScanStarts(nextScanMs, System.currentTimeMillis(), endTime.getTime(), gapMs);
+        if (CollectionUtils.isEmpty(scanStarts)) {
+            if (nextScanMs >= endTime.getTime()) {
+                latch.countDown();
+            }
             return;
         }
-        // 处理1秒任务: 【tStart+1秒】这个范围的任务。例如 3秒-4秒
-        try{
-            handleBatch(tStart, new Date(tStart.getTime() + triggerAppConf.getZrangeGapSeconds()*1000L));
-        }catch (Exception e){
-            log.error("handleBatch Error. minuteBucketKey"+minuteBucketKey+",tStartTime:"+startTime+",e:",e);
+
+        // Catch up missed ticks by wall clock so a late Timer start does not shift the whole minute.
+        for (Long scanStart : scanStarts) {
+            try {
+                handleBatch(new Date(scanStart), new Date(scanStart + gapMs));
+            } catch (Exception e) {
+                log.error("handleBatch Error. minuteBucketKey" + minuteBucketKey + ",tStartTime:" + startTime + ",e:", e);
+            }
+            nextScanMs = scanStart + gapMs;
         }
-        count++;
+
+        if (nextScanMs >= endTime.getTime()) {
+            latch.countDown();
+        }
     }
 
-    private void handleBatch(Date start, Date end){
-        //获取待触发的任务
-        List<TaskModel> tasks = getTasksByTime(start,end);
-        if (CollectionUtils.isEmpty(tasks)){
+    static List<Long> collectDueScanStarts(long nextScanMs, long nowMs, long endMs, long gapMs) {
+        if (gapMs <= 0) {
+            throw new IllegalArgumentException("gapMs must be positive");
+        }
+
+        List<Long> scanStarts = new ArrayList<>();
+        if (nextScanMs >= endMs || nowMs < nextScanMs) {
+            return scanStarts;
+        }
+
+        long dueMs = nextScanMs + ((nowMs - nextScanMs) / gapMs) * gapMs;
+        for (long scanMs = nextScanMs; scanMs <= dueMs && scanMs < endMs; scanMs += gapMs) {
+            scanStarts.add(scanMs);
+        }
+        return scanStarts;
+    }
+
+    private void handleBatch(Date start, Date end) {
+        long t1 = System.currentTimeMillis();
+        List<TaskModel> tasks = getTasksByTime(start, end);
+        long t2 = System.currentTimeMillis();
+        if (CollectionUtils.isEmpty(tasks)) {
             return;
         }
-        // 从ZSET捞到的一批触发任务，现在需要遍历挨个执行
-        for (TaskModel task :tasks) {
+        log.info("BENCH_ZRANGE key={} count={} zrangeMs={}", minuteBucketKey, tasks.size(), t2 - t1);
+        for (TaskModel task : tasks) {
             try {
-                if(task == null){
+                if (task == null) {
                     continue;
                 }
-                // 调用【执行模块Executor】，执行任务；
                 triggerPoolTask.runExecutor(task);
-            }catch (Exception e){
-                log.error("executor run task error,task"+task.toString());
+            } catch (Exception e) {
+                log.error("executor run task error,task" + task.toString());
             }
         }
+        long t3 = System.currentTimeMillis();
+        log.info("BENCH_SUBMIT key={} count={} submitMs={}", minuteBucketKey, tasks.size(), t3 - t2);
     }
 
-    private List<TaskModel> getTasksByTime(Date start, Date end){
+    private List<TaskModel> getTasksByTime(Date start, Date end) {
         List<TaskModel> tasks = new ArrayList<>();
 
-        // 先走缓存
-        try{
-            tasks= taskCache.getTasksFromCache(minuteBucketKey,start.getTime(),end.getTime());
-        }catch (Exception e){
-            log.error("getTasksFromCache error: " ,e);
-            // 缓存miss,走数据库
-            try{
-                tasks = taskMapper.getTasksByTimeRange(start.getTime(),end.getTime()-1, TaskStatus.NotRun.getStatus());
-            }catch (Exception e1){
-                log.error("getTasksByConditions error: " ,e1);
+        try {
+            tasks = taskCache.getTasksFromCache(minuteBucketKey, start.getTime(), end.getTime());
+        } catch (Exception e) {
+            log.error("getTasksFromCache error: ", e);
+            try {
+                tasks = taskMapper.getTasksByTimeRange(start.getTime(), end.getTime() - 1, TaskStatus.NotRun.getStatus());
+            } catch (Exception e1) {
+                log.error("getTasksByConditions error: ", e1);
             }
         }
         return tasks;

@@ -145,6 +145,7 @@ fabric.properties
 *.DS_Store
 
 # Application logs
+logs/
 **/app.log
 **/app.log.err
 

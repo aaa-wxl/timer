@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<configuration debug="true">
+<configuration debug="false">
     <!-- 应用名称 -->
     <property name="APP_NAME" value="bitstorm-svr-xtimer"/>
     <!--定义日志文件的存储地址-->
@@ -11,6 +11,9 @@
 
     <!-- 控制台输出-高亮 -->
     <appender name="CONSOLE-WITH-HIGHLIGHT" class="ch.qos.logback.core.ConsoleAppender">
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>WARN</level>
+        </filter>
         <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
             <pattern>${HIGHLIGHT_PATTERN}</pattern>
         </encoder>
@@ -18,6 +21,9 @@
 
     <!--文件输出的格式设置 -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>WARN</level>
+        </filter>
 
         <!-- 如果是 true，日志会被安全的写入文件，即使其他的FileAppender也在向此文件做写入操作，效率低，默认是 false -->
         <prudent>false</prudent>
@@ -52,9 +58,11 @@
     </appender>
 
     <!-- 日志输出级别 -->
-    <logger name="org.springframework" level="INFO"/>
-    <logger name="com.bitoffer.*" level="INFO"/>
-    <root level="INFO">
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="org.springframework.web.client.RestTemplate" level="WARN"/>
+    <logger name="cn.bitoffer" level="WARN"/>
+    <logger name="com.bitoffer.*" level="WARN"/>
+    <root level="WARN">
         <appender-ref ref="CONSOLE-WITH-HIGHLIGHT"/>
         <appender-ref ref="FILE"/>
     </root>

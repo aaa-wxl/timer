@@ -6,7 +6,7 @@ import java.io.Serializable;
 
 public class TaskModel extends BaseModel implements Serializable {
 
-    private Integer taskId;
+    private Long taskId;
 
     private String app;
 
@@ -20,11 +20,11 @@ public class TaskModel extends BaseModel implements Serializable {
 
     private int status;
 
-    public Integer getTaskId() {
+    public Long getTaskId() {
         return taskId;
     }
 
-    public void setTaskId(Integer taskId) {
+    public void setTaskId(Long taskId) {
         this.taskId = taskId;
     }
 
