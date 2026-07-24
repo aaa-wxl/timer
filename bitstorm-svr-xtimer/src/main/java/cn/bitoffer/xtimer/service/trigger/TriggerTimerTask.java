@@ -51,22 +51,22 @@ public class TriggerTimerTask extends TimerTask {
     @Override
     public void run() {
         long gapMs = triggerAppConf.getZrangeGapSeconds() * 1000L;
-        List<Long> scanStarts = collectDueScanStarts(nextScanMs, System.currentTimeMillis(), endTime.getTime(), gapMs);
-        if (CollectionUtils.isEmpty(scanStarts)) {
+        List<long[]> scanRanges = collectDueScanRanges(nextScanMs, System.currentTimeMillis(), endTime.getTime(), gapMs);
+        if (CollectionUtils.isEmpty(scanRanges)) {
             if (nextScanMs >= endTime.getTime()) {
                 latch.countDown();
             }
             return;
         }
 
-        // Catch up missed ticks by wall clock so a late Timer start does not shift the whole minute.
-        for (Long scanStart : scanStarts) {
+        // Catch up due scores by wall clock; never scan beyond now.
+        for (long[] scanRange : scanRanges) {
             try {
-                handleBatch(new Date(scanStart), new Date(scanStart + gapMs));
+                handleBatch(new Date(scanRange[0]), new Date(scanRange[1]));
             } catch (Exception e) {
                 log.error("handleBatch Error. minuteBucketKey" + minuteBucketKey + ",tStartTime:" + startTime + ",e:", e);
             }
-            nextScanMs = scanStart + gapMs;
+            nextScanMs = scanRange[1];
         }
 
         if (nextScanMs >= endTime.getTime()) {
@@ -74,21 +74,22 @@ public class TriggerTimerTask extends TimerTask {
         }
     }
 
-    static List<Long> collectDueScanStarts(long nextScanMs, long nowMs, long endMs, long gapMs) {
+    static List<long[]> collectDueScanRanges(long nextScanMs, long nowMs, long endMs, long gapMs) {
         if (gapMs <= 0) {
             throw new IllegalArgumentException("gapMs must be positive");
         }
 
-        List<Long> scanStarts = new ArrayList<>();
+        List<long[]> scanRanges = new ArrayList<>();
         if (nextScanMs >= endMs || nowMs < nextScanMs) {
-            return scanStarts;
+            return scanRanges;
         }
 
-        long dueMs = nextScanMs + ((nowMs - nextScanMs) / gapMs) * gapMs;
-        for (long scanMs = nextScanMs; scanMs <= dueMs && scanMs < endMs; scanMs += gapMs) {
-            scanStarts.add(scanMs);
+        long dueEndMs = Math.min(nowMs + 1, endMs);
+        for (long scanStart = nextScanMs; scanStart < dueEndMs; scanStart += gapMs) {
+            long scanEnd = Math.min(scanStart + gapMs, dueEndMs);
+            scanRanges.add(new long[]{scanStart, scanEnd});
         }
-        return scanStarts;
+        return scanRanges;
     }
 
     private void handleBatch(Date start, Date end) {
