@@ -19,7 +19,7 @@ public class SchedulerWorker {
     @Autowired
     SchedulerAppConf schedulerAppConf;
 
-    @Scheduled(fixedRate = 1000)
+    @Scheduled(cron = "* * * * * *")
     public void scheduledTask() {
         log.info("任务执行时间：" + LocalDateTime.now());
         handleSlices();
