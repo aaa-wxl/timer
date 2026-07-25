@@ -152,3 +152,4 @@ logs/
 # Local dev config with credentials
 **/application-dev.yml
 **/application-local.yml
+bitstorm-svr-xtimer/memory.md
