@@ -26,7 +26,7 @@ public class TriggerTimerTask extends TimerTask {
     TaskMapper taskMapper;
 
     private CountDownLatch latch;
-    private long nextScanMs;
+    private long count = 0L;
 
     private Date startTime;
 
@@ -45,54 +45,23 @@ public class TriggerTimerTask extends TimerTask {
         this.startTime = startTime;
         this.endTime = endTime;
         this.minuteBucketKey = minuteBucketKey;
-        this.nextScanMs = startTime.getTime();
     }
 
     @Override
     public void run() {
         long gapMs = triggerAppConf.getZrangeGapSeconds() * 1000L;
-        // Quartz cron 最小粒度是秒；根据真实墙上时间计算本轮应该扫描的秒级窗口。
-        List<long[]> scanRanges = collectDueScanRanges(nextScanMs, System.currentTimeMillis(), endTime.getTime(), gapMs);
-        if (CollectionUtils.isEmpty(scanRanges)) {
-            if (nextScanMs >= endTime.getTime()) {
-                latch.countDown();
-            }
+        Date tStart = new Date(startTime.getTime() + count * gapMs);
+        if (tStart.compareTo(endTime) >= 0) {
+            latch.countDown();
             return;
         }
 
-        // 只补扫已经到期但还没扫过的窗口，nextScanMs 始终指向下一个未扫描窗口起点。
-        for (long[] scanRange : scanRanges) {
-            try {
-                handleBatch(new Date(scanRange[0]), new Date(scanRange[1]));
-            } catch (Exception e) {
-                log.error("handleBatch Error. minuteBucketKey" + minuteBucketKey + ",tStartTime:" + startTime + ",e:", e);
-            }
-            nextScanMs = scanRange[1];
+        try {
+            handleBatch(tStart, new Date(tStart.getTime() + gapMs));
+        } catch (Exception e) {
+            log.error("handleBatch Error. minuteBucketKey" + minuteBucketKey + ",tStartTime:" + startTime + ",e:", e);
         }
-
-        if (nextScanMs >= endTime.getTime()) {
-            latch.countDown();
-        }
-    }
-
-    // 返回半开区间 [start, end)。TaskCache 实际用 rangeByScore(start, end - 1)，所以 end 不包含在内。
-    // now=03.200 时最多扫描到 [03,04)，cron 任务只会落在整秒 03.000，不会提前命中 04.000。
-    static List<long[]> collectDueScanRanges(long nextScanMs, long nowMs, long endMs, long gapMs) {
-        if (gapMs <= 0) {
-            throw new IllegalArgumentException("gapMs must be positive");
-        }
-
-        List<long[]> scanRanges = new ArrayList<>();
-        if (nextScanMs >= endMs || nowMs < nextScanMs) {
-            return scanRanges;
-        }
-
-        long dueEndMs = Math.min(((nowMs / 1000L) + 1) * 1000L, endMs);
-        for (long scanStart = nextScanMs; scanStart < dueEndMs; scanStart += gapMs) {
-            long scanEnd = Math.min(scanStart + gapMs, dueEndMs);
-            scanRanges.add(new long[]{scanStart, scanEnd});
-        }
-        return scanRanges;
+        count++;
     }
 
     private void handleBatch(Date start, Date end) {
